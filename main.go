@@ -1,4 +1,4 @@
-//reference https://github.com/trojan-gfw/igniter-go-libs/blob/master/tun2socks/tun2socks.go
+// reference https://github.com/trojan-gfw/igniter-go-libs/blob/master/tun2socks/tun2socks.go
 package main
 
 import (
@@ -24,6 +24,12 @@ import (
 
 	v2ray "github.com/Trojan-Qt5/v2ray-go/core"
 )
+import (
+	"io/ioutil"
+
+	"github.com/p4gefau1t/trojan-go/conf"
+	"github.com/p4gefau1t/trojan-go/proxy"
+)
 
 const (
 	MTU = 1500
@@ -36,6 +42,8 @@ var (
 	ctx        context.Context
 	cancel     context.CancelFunc
 	isRunning  bool = false
+
+	isTrojanGoRunning bool = false
 )
 
 //export is_tun2socks_running
@@ -111,6 +119,50 @@ func startShadowsocksGo(ClientAddr *C.char, ServerAddr *C.char, Cipher *C.char, 
 //export stopShadowsocksGo
 func stopShadowsocksGo() {
 	shadowsocks.StopGoShadowsocks()
+}
+
+//export startTrojanGo
+func startTrojanGo(filename *C.char) {
+	if client != nil {
+		log.Info("Client is already running")
+		return
+	}
+	log.Info("Running client, config file:", C.GoString(filename))
+	configBytes, err := ioutil.ReadFile(C.GoString(filename))
+	if err != nil {
+		log.Error("failed to read file", err)
+	}
+	config, err := conf.ParseJSON(configBytes)
+	if err != nil {
+		log.Error("error", err)
+		return
+	}
+	client, err = proxy.NewProxy(config)
+	if err != nil {
+		log.Error("error", err)
+		return
+	}
+	go client.Run()
+	log.Info("trojan launched")
+	isTrojanGoRunning = true
+}
+
+//export stopTrojanGo
+func stopTrojanGo() {
+	if isTrojanGoRunning {
+		log.Info("Stopping client")
+		if client != nil {
+			client.Close()
+			client = nil
+		}
+		log.Info("Stopped")
+		isTrojanGoRunning = false
+	}
+}
+
+//export getTrojanGoVersion
+func getTrojanGoVersion() *C.char {
+	return C.CString(common.Version)
 }
 
 //export testV2rayGo
