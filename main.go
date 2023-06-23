@@ -25,8 +25,11 @@ import (
 	v2ray "github.com/Trojan-Qt5/v2ray-go/core"
 )
 import (
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 
+	"github.com/bit-rocket/open-snell/components/snell"
 	"github.com/p4gefau1t/trojan-go/conf"
 	"github.com/p4gefau1t/trojan-go/proxy"
 )
@@ -44,6 +47,7 @@ var (
 	isRunning  bool = false
 
 	isTrojanGoRunning bool = false
+	isSnellGoRunning  bool = false
 )
 
 //export is_tun2socks_running
@@ -73,6 +77,7 @@ func run_tun2socks(tunName *C.char, tunAddr *C.char, tunGw *C.char, tunDns *C.ch
 	var err error
 	tunDev, err = tun.OpenTunDevice(C.GoString(tunName), C.GoString(tunAddr), C.GoString(tunGw), "255.255.255.0", dnsServers)
 	if err != nil {
+		log.Error("open tun device err:%v", err)
 	}
 
 	// Setup TCP/IP stack.
@@ -179,6 +184,67 @@ func startV2rayGo(configFile *C.char) {
 //export stopV2rayGo
 func stopV2rayGo() {
 	v2ray.StopV2ray()
+}
+
+type SnellConfig struct {
+	SnellAPI   SnellAPI  `json:"api"`
+	LocalAddr  string    `json:"local_addr"`
+	LocalPort  int       `json:"local_port"`
+	PSK        string    `json:"psk"`
+	RemoteAddr string    `json:"remote_addr"`
+	RemotePort int       `json:"remote_port"`
+	Obfs       SnellObfs `json:"obfs"`
+}
+type SnellAPI struct {
+	ApiAddr string `json:"api_addr"`
+	ApiPort int    `json:"api_port"`
+	Enabled bool   `json:"enabled"`
+}
+type SnellObfs struct {
+	Host string `json:"obfs_host"`
+	Type string `json:"obfs_type"`
+}
+
+//export startSnellGo
+func startSnellGo(configFile *C.char) {
+	if isSnellGoRunning {
+		log.Info("snell go is already running")
+		return
+	}
+
+	log.Info("Running snell client, config file:", C.GoString(configFile))
+	configBytes, err := ioutil.ReadFile(C.GoString(configFile))
+	if err != nil {
+		log.Errorf("failed to read file:%v", err)
+		return
+	}
+	cf := SnellConfig{}
+	if err := json.Unmarshal(configBytes, &cf); err != nil {
+		log.Errorf("load snell json config err:%v", err)
+		return
+	}
+	if err := snell.StartGoSnell(
+		fmt.Sprintf("%s:%d", cf.LocalAddr, cf.LocalPort),
+		fmt.Sprintf("%s:%d", cf.RemoteAddr, cf.RemotePort),
+		cf.Obfs.Type, cf.Obfs.Host, cf.PSK, true, cf.SnellAPI.Enabled,
+		fmt.Sprintf("%s:%d", cf.SnellAPI.ApiAddr, cf.SnellAPI.ApiPort),
+	); err != nil {
+		log.Errorf("failed to start go snell:%v", err)
+		return
+	}
+	log.Info("start snell go client ok")
+	isSnellGoRunning = true
+}
+
+//export stopSnellGo
+func stopSnellGo() {
+	if !isSnellGoRunning {
+		log.Warn("try to stop while snell go not running")
+		return
+	}
+	snell.StopGoSnell()
+	isSnellGoRunning = false
+	log.Info("stop snell go client")
 }
 
 func main() {
